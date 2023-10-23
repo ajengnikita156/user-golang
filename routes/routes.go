@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"membuatuser/controller"
 	"membuatuser/db"
+	middleware "membuatuser/middleware"
 	"net/http"
 	"os"
- middleware "membuatuser/middleware"
 
 	"github.com/labstack/echo/v4"
 
 )
+
 func Init() error {
 	e := echo.New()
 	db, err := db.Init()
@@ -26,15 +27,18 @@ func Init() error {
 		})
 	})
 
-	user := e.Group("")
-	middleware.ValidateToken(user) // Function untuk manggil middleware ke group routes /users
+	user := e.Group("/users")
 
-	user.GET("/users", controller.GetUsersController(db)) //=>untuk mengirimkan db
-	user.GET("/getuser/:id", controller.GetUsersByIDController(db))
-	user.POST("/adduser", controller.AddUserController(db))
+	user.Use(middleware.ValidateToken)
+
+	user.GET("", controller.GetUsersController(db)) //=>untuk mengirimkan db
+	user.GET("/:id", controller.GetUsersByIDController(db))
+	user.POST("", controller.AddUserController(db))
 	e.POST("/register", controller.RegisterController(db))
 	e.POST("/login", controller.LoginCompareController(db))
-	user.PUT("/edituser/:id", controller.EditUserController(db))
-	user.DELETE("/deleteuser/:id", controller.DeleteUserController(db))
+	e.POST("/logout", controller.LogoutController(db))
+	user.PUT("/:id", controller.EditUserController(db))
+	user.DELETE("/:id", controller.DeleteUserController(db))
+	user.DELETE("", controller.BulkDeleteController(db))
 	return e.Start(fmt.Sprintf(":%s", os.Getenv("SERVER_PORT")))
 }

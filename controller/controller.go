@@ -4,7 +4,10 @@ import (
 	"database/sql"
 	"fmt"
 	"membuatuser/helpers"
+	"membuatuser/middleware"
 	"net/http"
+	// "strconv"
+	"strings"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -80,22 +83,23 @@ type MyClaims struct {
 	ID int `json:"id"`
 }
 
-type TokenPayload struct {
-	ID int64 `json:"id"`
+type Claims struct {
+	ID    int    `json:"id"`
+	Email string `json:"email"`
+	jwt.StandardClaims
+}
+
+type BulkDeleteRequest struct {
+	ID []int `json:"id"`
 }
 
 func GetUsersController(db *sqlx.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var users []User
 
-		user := c.Get("jwt-res")
-		claims := user.(TokenPayload)
-		name := claims.ID
-		fmt.Println(name)
-		
 		const query = `SELECT users.id, users.name, users.email, users.age, detail_users.address, detail_users.phone_number, detail_users.gender, detail_users.status, detail_users.city, detail_users.province, users.created_at, users.updated_at
 		FROM users
-		LEFT JOIN detail_usersgit 
+		LEFT JOIN detail_users
 		ON users.id = detail_users.id_user`
 		rows, err := db.Query(query)
 		if err != nil {
@@ -129,6 +133,12 @@ func GetUsersController(db *sqlx.DB) echo.HandlerFunc {
 			users = append(users, user)
 			//append => untuk menambahkan data
 		}
+
+		user := c.Get("jwt-res")
+		claims := user.(middleware.JWTClaim)
+		id := claims.ID
+		email := claims.Email
+		fmt.Println(id, email)
 
 		return c.JSON(http.StatusOK, map[string]interface{}{
 			"Message": "Successfully displays user data",
@@ -405,6 +415,25 @@ func RegisterController(db *sqlx.DB) echo.HandlerFunc {
 	}
 }
 
+func BulkDeleteController(db *sqlx.DB) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var request BulkDeleteRequest
+		err := c.Bind(&request)
+
+		for _, id := range request.ID {
+			query := "DELETE FROM users WHERE id = $1"
+			_, err = db.Exec(query, id)
+			if err != nil {
+				return err
+			}
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"message": "successful deletion of some data",
+		})
+	}
+}
+
 // LOGIN
 func LoginCompareController(db *sqlx.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -464,22 +493,29 @@ func LoginCompareController(db *sqlx.DB) echo.HandlerFunc {
 			}
 			return err
 		}
+		var (
+			jwtToken  *jwt.Token
+			secretKey = []byte("secret")
+		)
 
-		claims := &MyClaims{
-			ID: user.ID,
+		jwtClaims := &Claims{
+			ID:    user.ID,
+			Email: user.Email,
 			StandardClaims: jwt.StandardClaims{
-				ExpiresAt: time.Now().Add(1 * time.Hour).Unix(),
+				ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
 			},
 		}
 
-		//TOKEN JWT
-		sign := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), claims)
-		token, err := sign.SignedString([]byte("secret"))
+		jwtToken = jwt.NewWithClaims(jwt.SigningMethodHS256, jwtClaims)
+
+		token, err := jwtToken.SignedString(secretKey)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
-				"message": err.Error(),
-			})
+			return err
 		}
+
+
+		const query2 = `INSERT INTO user_token (user_id, token) VALUES ($1, $2)`
+		_ = db.QueryRowx(query2, user.ID, token)
 
 		return c.JSON(http.StatusOK, map[string]interface{}{
 			"Message": "Login Successful",
@@ -487,4 +523,29 @@ func LoginCompareController(db *sqlx.DB) echo.HandlerFunc {
 			"data":    user,
 		})
 	}
+}
+
+func LogoutController(db *sqlx.DB) echo.HandlerFunc {
+		return func(c echo.Context) error {
+		var reqToken string
+		headerDataToken := c.Request().Header.Get("Authorization")
+
+		splitToken := strings.Split(headerDataToken, "Bearer")
+		if len(splitToken) > 1 {
+			reqToken = splitToken[1]
+		} else {
+			return echo.NewHTTPError(http.StatusUnauthorized)
+		}
+
+		query := "DELETE FROM user_token WHERE token = $1"
+		_, err := db.Exec(query, reqToken)
+		if err != nil {
+			return err
+		} 
+
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"message": "Succesfully Logout",
+		})
+	}
+
 }
