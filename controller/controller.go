@@ -356,8 +356,6 @@ func DeleteUserController(db *sqlx.DB) echo.HandlerFunc {
 	}
 }
 
-//validate adalah validasi pernyataan untuk merintah 'ini harus ada loh'
-
 // REGISTRASI
 func RegisterController(db *sqlx.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -415,6 +413,7 @@ func RegisterController(db *sqlx.DB) echo.HandlerFunc {
 	}
 }
 
+//week 
 func BulkDeleteController(db *sqlx.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var request BulkDeleteRequest
@@ -525,22 +524,28 @@ func LoginCompareController(db *sqlx.DB) echo.HandlerFunc {
 	}
 }
 
+//week
 func LogoutController(db *sqlx.DB) echo.HandlerFunc {
 		return func(c echo.Context) error {
 		var reqToken string
 		headerDataToken := c.Request().Header.Get("Authorization")
 
-		splitToken := strings.Split(headerDataToken, "Bearer")
+		splitToken := strings.Split(headerDataToken, "Bearer ")
 		if len(splitToken) > 1 {
 			reqToken = splitToken[1]
 		} else {
 			return echo.NewHTTPError(http.StatusUnauthorized)
 		}
 
-		query := "DELETE FROM user_token WHERE token = $1"
+		query := `DELETE FROM user_token WHERE token = $1`
+
 		_, err := db.Exec(query, reqToken)
 		if err != nil {
-			return err
+			if err == sql.ErrNoRows {
+				return c.JSON(http.StatusNotFound, map[string]interface{}{
+					"message": "Data pengguna tidak ditemukan",
+				})
+			}
 		} 
 
 		return c.JSON(http.StatusOK, map[string]interface{}{
